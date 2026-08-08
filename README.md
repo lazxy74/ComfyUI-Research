@@ -1,2 +1,2 @@
-# ComfyUI-Research
-researching the basic usage methods of comfyui......
+# Workflow Dictionary
+
