@@ -1,0 +1,29 @@
+# Large model weights
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# ComfyUI runtime data
+input/
+output/
+temp/
+
+# Python and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local notes and secrets
+.env
+.env.*
+*.local.md
