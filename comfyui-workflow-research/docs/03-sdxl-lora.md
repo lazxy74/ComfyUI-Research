@@ -2,9 +2,40 @@
 
 [返回首页](../README.md)
 
-## LoRA 是什么
+## 学习目标
 
-LoRA（Low-Rank Adaptation）是一种轻量化的模型适配方式。它通过叠加额外权重，使基础模型具备特定风格、人物或概念的生成倾向，而不需要重新训练完整模型。
+理解 LoRA 如何在 Base 模型的去噪网络和文本编码网络中叠加轻量权重，从而在不替换整个模型的前提下，让生成结果偏向特定风格、人物或概念。
+
+可从 [ComfyUI 官方示例站](https://comfyanonymous.github.io/ComfyUI_examples/) 的 [LoRA 示例页](https://comfyanonymous.github.io/ComfyUI_examples/lora/) 获取示例。带有 Workflow metadata 的图片通常可以直接拖入 ComfyUI 画布；需要程序调用时，再导出相应的 Workflow/API JSON。
+
+## 核心数据流
+
+```mermaid
+flowchart LR
+    P["Positive / Negative Prompt"] --> C["CLIP Text Encode"]
+    B["SDXL Base Checkpoint"] --> C
+    B --> LL["LoraLoader"]
+    C --> LL
+    LL --> M["MODEL 分支"]
+    LL --> CL["CLIP 分支"]
+    M --> KS["KSampler"]
+    CL --> KS
+    L["Empty Latent Image"] --> KS
+    KS --> V["VAE Decode"]
+    V --> I["Save Image"]
+```
+
+## 完整流程展示图
+
+## 核心节点
+
+### LoraLoader
+
+LoRA 的"安装插槽"。它把轻量权重文件叠加到基础模型上，同时影响去噪网络和文本理解两侧，好比给画家同时换了一套画笔和一副眼镜。
+
+- **MODEL 分支**：改变去噪网络的生成倾向，好比给画家换了一套"像素画笔"，直接影响视觉风格、形态和笔触。
+- **CLIP 分支**：改变文本编码侧对相关概念的响应，好比给画家戴了一副"像素风格眼镜"，让他对 Prompt 中的风格词更敏感、理解更到位。
+- **强度参数**：`strength_model` 控制画笔浓度，`strength_clip` 控制眼镜度数。两个同时调高容易"乱炖"，建议一次只动一个，先找到最佳搭配。
 
 ## 准备模型
 
@@ -15,8 +46,6 @@ cd /path/to/ComfyUI/models/loras
 wget https://hf-mirror.com/nerijs/pixel-art-xl/resolve/main/pixel-art-xl.safetensors
 ```
 
-> 该地址是原始笔记采用的镜像链接。下载前请确认权重来源、许可证和适用的基础模型。
-
 ## 加载示例
 
 1. 打开 [ComfyUI LoRA 示例页](https://comfyanonymous.github.io/ComfyUI_examples/lora/)。
@@ -24,24 +53,6 @@ wget https://hf-mirror.com/nerijs/pixel-art-xl/resolve/main/pixel-art-xl.safeten
 3. 如果示例引用了缺失的 Checkpoint，在 `Load Checkpoint` 中替换为本机已有且兼容的 SDXL 模型。
 4. 在 `LoraLoader` 中选择 `pixel-art-xl.safetensors`。
 5. 固定 Prompt 与 Seed，逐组修改 LoRA 强度。
-
-## 数据流
-
-```mermaid
-flowchart LR
-    CK["Checkpoint Loader"] --> LL["LoraLoader"]
-    LL -->|"MODEL"| KS["KSampler"]
-    LL -->|"CLIP"| TE["CLIP Text Encode"]
-    TE --> KS
-    KS --> LA["Latent"]
-    LA --> VD["VAE Decode"]
-    VD --> IM["Image"]
-```
-
-LoraLoader 同时影响两条分支：
-
-- `MODEL` 分支：改变去噪网络的生成倾向，通常更直接地影响视觉风格和形态；
-- `CLIP` 分支：改变文本编码侧对相关概念的响应。
 
 ## 关键参数
 
@@ -62,6 +73,14 @@ LoraLoader 同时影响两条分支：
 | C | 1.5 | 1.5 | 出现过拟合式崩坏：面部扭曲、人体比例异常 |
 | D | 2.0 | 2.0 | 风格接近 1.5，但完成度有所回升；该现象需要更多样本验证 |
 
+![ strength_model，strength_clip = 0](https://github.com/user-attachments/assets/abc123...)
+
+![ strength_model，strength_clip = 1（初始）](src="https://github.com/user-attachments/assets/786429e0-e85b-4431-aa73-3dccd19dc931)
+
+![ strength_model，strength_clip = 1.5](https://github.com/user-attachments/assets/62f39f19-fe02-4a38-a512-47da35816df0)
+
+![ strength_model，strength_clip = 2.0](https://github.com/user-attachments/assets/faf884b0-4337-4f05-be7f-1fb040f07f53)
+
 ## 调研结论
 
 1. **Prompt 与 LoRA 是双重引导。** 即使 LoRA 强度为 0，Prompt 中的 `pixel art style` 仍可能驱动风格，但效果的稳定性与完成度不同。
@@ -69,6 +88,3 @@ LoraLoader 同时影响两条分支：
 3. **经验区间不能替代逐模型测试。** 原始笔记建议从 0.6–1.0 区间试起；不同 LoRA 的最佳权重可能不同。
 4. **模型家族必须兼容。** SDXL LoRA 应搭配兼容的 SDXL 基础模型。
 
-## 推荐的改进实验
-
-不要一开始同时修改两个强度。可以先固定 `strength_clip=1.0`，扫描 `strength_model`；再固定最佳 `strength_model`，扫描 `strength_clip`。这样更容易判断问题来自哪个分支。

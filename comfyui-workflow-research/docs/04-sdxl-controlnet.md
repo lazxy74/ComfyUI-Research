@@ -2,15 +2,53 @@
 
 [返回首页](../README.md)
 
-## ControlNet 解决什么问题
+## 学习目标
 
-ControlNet 在文本条件之外增加图像结构条件，使生成结果遵循姿态、边缘、深度、涂鸦或线稿等布局信息。
+理解 ControlNet 如何在文本条件之外，额外注入姿态、边缘、深度或涂鸦等结构条件，让生成结果"按图施工"而非完全自由发挥。
 
-```text
-基础文生图：Text → Image
+可从 [ComfyUI 官方示例站](https://comfyanonymous.github.io/ComfyUI_examples/) 的 [ControlNet 示例页](https://comfyanonymous.github.io/ComfyUI_examples/controlnet/) 获取示例。带有 Workflow metadata 的图片通常可以直接拖入 ComfyUI 画布；需要程序调用时，再导出相应的 Workflow/API JSON。
 
-ControlNet：Text + Pose / Depth / Edge / Scribble → Image
+## 核心数据流
+
+```mermaid
+flowchart LR
+    P["Positive / Negative Prompt"] --> C["CLIP Text Encode"]
+    B["SDXL Base Checkpoint"] --> C
+    B --> KS["KSampler"]
+    C --> KS
+    L["Empty Latent Image"] --> KS
+    RI["参考图"] --> PP["Preprocessor"]
+    PP --> AC["Apply ControlNet"]
+    CM["Load ControlNet Model"] --> AC
+    C --> AC
+    AC --> KS
+    KS --> V["VAE Decode"]
+    V --> I["Save Image"]
 ```
+
+## 完整流程展示图
+
+## 核心节点
+
+### Preprocessor
+
+结构翻译器。把普通照片或草图转换成 ControlNet 能读懂的"建筑图纸"。
+
+- 好比把一张真人照片先翻译成"火柴人骨架"或"铅笔线稿"，让 ControlNet 只看结构不看颜色。
+- 不同 ControlNet 模型需要匹配对应的预处理器，就像不同监理需要看不同图纸。OpenPose 看骨骼，Canny 看边缘，Scribble 看涂鸦。
+
+### Load ControlNet Model
+
+加载专门训练的结构控制权重，输出一本"结构规范手册"。
+
+- 输出 `CONTROL_NET`。这些模型只懂结构语言，不懂颜色或纹理，专门负责判断"腿应该摆成什么角度"、"轮廓应该遵循什么形状"。
+
+### Apply ControlNet
+
+把结构条件"装订"进文本条件里，形成一份带图纸的施工指令。
+
+- 将 ControlNet、结构图和文本条件组合为新的 `CONDITIONING`。此时 KSampler 拿到的不再是"口头描述"，而是"口头描述 + 建筑图纸"。
+- 正向条件中包含了附加的结构约束，模型必须在满足 Prompt 内容的同时，遵守结构图纸的规范。
 
 ## 准备模型
 
@@ -54,49 +92,21 @@ pip install -r requirements.txt
 | Depth | 近白远黑的深度图 | 空间远近与透视 | 控制场景层次 |
 | Scribble | 手绘涂鸦或草图 | 大致构图和形状 | 从草稿生成精图 |
 | Lineart | 干净线稿 | 线条结构 | 线稿上色 |
+| Normal Map | 彩虹色的法线图 | 表面朝向、立体结构 | 控制光影方向、3D 感 |
+| MLSD | 直线检测图 | 水平线、垂直线、建筑结构 | 室内设计、建筑、透视严格的场景 |
+| Softedge/HED | 柔和的边缘图 | 比 Canny 更模糊的轮廓 | 保留大致形状但允许更多自由发挥 |
 | Segmentation | 语义色块分割图 | 物体位置区域 | 指定区域内容 |
+| Tile | 原图切分的小块 | 局部细节和结构 | 图像放大（Upscale）时保持细节不崩 |
+| Shuffle | 任意参考图 | 风格和色彩分布 | 参考图的风格迁移 |
+| Reference | 参考图 | 角色外观/风格一致性 | 让生成图和参考角色长得像 |
 
-## 数据流
+以下以Scribble为例子来展示效果：
+![草图](https://github.com/user-attachments/assets/8b70c65f-05f5-4e94-9e74-a257464cdc27)
 
-```mermaid
-flowchart LR
-    RI["参考图"] --> PP["Preprocessor"]
-    PP --> AC["Apply ControlNet"]
-    CM["Load ControlNet Model"] --> AC
-    TX["CLIP Text Encode"] --> AC
-    AC -->|"Conditioning"| KS["KSampler"]
-    KS --> VA["VAE Decode"]
-    VA --> IM["Image"]
-```
-
-## 核心节点
-
-### Preprocessor
-
-从参考图提取骨骼、边缘、深度、涂鸦或线稿等结构信息。
-
-### Load ControlNet Model
-
-加载与基础模型家族和控制类型匹配的 ControlNet 权重，输出 `CONTROL_NET`。
-
-### Apply ControlNet
-
-把 ControlNet、结构图和文本条件组合为新的 `CONDITIONING`，再交给采样器。此时 KSampler 同时受文本与结构约束。
-
-### KSampler
-
-接收正向条件、负向条件和 Latent 进行采样。加入 ControlNet 后，正向条件中包含了附加的结构约束。
+![完整流程图](https://github.com/user-attachments/assets/7853ad47-185b-44a2-b6a1-d92b59e7a15f)
 
 ## 强度调节
 
 - 越接近 `1.0`：越严格遵循参考结构；
 - 越接近 `0`：结构约束越弱，生成越自由；
 - 原始笔记建议从 `0.8` 开始，再根据构图保持程度逐步调整。
-
-## 排查顺序
-
-1. 确认基础模型与 ControlNet 都是 SDXL 对应版本。
-2. 确认预处理器类型与 ControlNet 类型一致。
-3. 预览预处理结果，先判断结构图是否正确。
-4. 固定 Seed，调整 ControlNet 强度。
-5. 最后再修改 Prompt、CFG 或采样参数。

@@ -25,6 +25,3 @@
 - [IP-Adapter SDXL](https://hf-mirror.com/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter_sdxl_vit-h.safetensors)
 - [CLIP Vision Encoder](https://hf-mirror.com/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors)
 
-## 后续引用规范
-
-新增实验时，建议同时记录：来源页面、仓库 commit 或模型版本、下载日期、许可证和文件哈希。只记录文件名不足以保证他人能够复现实验。

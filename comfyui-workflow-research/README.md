@@ -24,14 +24,6 @@
 | ControlNet | 构图、姿态、轮廓等结构 | `CONDITIONING` | 预处理后的结构图 |
 | IPAdapter | 人脸、物体、风格等视觉特征 | `MODEL` | 参考图 + CLIP Vision |
 
-## 推荐学习顺序
-
-1. 安装并确认 ComfyUI-Manager 可用。
-2. 跑通 SDXL Base + Refiner，理解 `MODEL`、`CLIP`、`CONDITIONING`、`LATENT` 和 `VAE`。
-3. 加入 LoRA，观察权重如何改变模型与文本编码分支。
-4. 加入 ControlNet，理解“文本条件 + 结构条件”的组合。
-5. 加入 IPAdapter，理解视觉特征如何注入模型。
-6. 固定 Prompt、Seed 和基础模型做单变量实验，记录参数与结果。
 
 ## 快速开始
 
@@ -52,7 +44,6 @@ bash scripts/download-models.sh --help
 ```text
 comfyui-workflow-research/
 ├── README.md
-├── CONTRIBUTING.md
 ├── docs/
 │   ├── 01-environment-setup.md
 │   ├── 02-sdxl-base-refiner.md
@@ -61,33 +52,9 @@ comfyui-workflow-research/
 │   ├── 05-sdxl-ipadapter.md
 │   ├── model-checklist.md
 │   └── references.md
-├── scripts/
-│   ├── install-manager.sh
-│   └── download-models.sh
-└── workflows/
-    └── README.md
+└── scripts/
+    ├── install-manager.sh
+    └── download-models.sh
+
 ```
 
-## 当前状态
-
-- [x] 完成 5 个主题的文档化整理
-- [x] 整理模型目录、参数建议与对比实验
-- [x] 提供可审阅的安装/下载辅助脚本
-- [ ] 补充可直接导入的 Workflow JSON
-- [ ] 补充每组实验的生成图、Seed 与耗时
-- [ ] 按实际使用版本补充环境矩阵
-
-## 使用提醒
-
-- 不要把 `.safetensors`、`.ckpt` 等大模型文件提交到 Git。
-- 下载脚本中的地址来自原始调研记录，使用前应再次确认文件来源、许可证和哈希。
-- LoRA、ControlNet、IPAdapter 应与基础模型家族匹配，例如 SDXL 工作流优先使用 SDXL 对应权重。
-- 节点名称会随 ComfyUI 或自定义节点包版本变化，文档更强调数据流与概念，而不是界面位置。
-
-## 参考资料
-
-项目引用的官方示例与扩展仓库统一列在 [参考资料](docs/references.md) 中。
-
-## License
-
-暂未指定开源许可证。准备公开发布前，请根据内容来源和预期复用方式选择合适的许可证。

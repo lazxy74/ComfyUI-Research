@@ -2,9 +2,49 @@
 
 [返回首页](../README.md)
 
-## IPAdapter 解决什么问题
+## 学习目标
 
-IPAdapter 使用参考图控制人物特征、物体特征或视觉风格。它更接近“画得像这张图”，而 ControlNet 更接近“按这张图的结构画”。
+理解 IPAdapter 如何通过参考图的视觉特征直接注入基础模型，使生成结果在人物长相、物体特征或视觉风格上"画得像这张图"，而非仅仅遵循文字描述。
+
+## 核心数据流
+
+```mermaid
+flowchart LR
+    P["Positive / Negative Prompt"] --> C["CLIP Text Encode"]
+    B["SDXL Base Checkpoint"] --> C
+    B --> KS["KSampler"]
+    C --> KS
+    L["Empty Latent Image"] --> KS
+    RI["参考图"] --> CV["CLIP Vision Encode"]
+    CV --> IPA["IPAdapter"]
+    B --> IPA
+    IPA --> KS
+    KS --> V["VAE Decode"]
+    V --> I["Save Image"]
+```
+
+## 完整流程展示图
+
+## 核心节点
+
+### CLIP Vision
+
+负责把参考图像转换为高维视觉特征。它处理的是图像信息，不是 Prompt 文本，相当于一双"只看图、不识字"的眼睛。
+
+![Markdown Logo]()
+注释：左侧或中间偏上为 CLIP Vision Encode 节点，接收参考图输入
+
+- 把参考图（如人物照片或风格图）编码成视觉特征向量。这些向量捕捉的是图像中的长相、纹理、色调等视觉信息，而非文字语义。
+
+### IPAdapter
+
+接收基础模型、参考图视觉特征以及相应适配器权重，输出经过视觉条件调整的 `MODEL`，供 KSampler 使用。
+
+![Markdown Logo]()
+注释：中间紫色框为 IPAdapter 节点，接收 MODEL、CLIP Vision 输出和权重参数
+
+- 好比给基础模型做了一次"微整容"或"风格化妆"：不改变模型的骨架，但让生成结果在五官、气质或笔触上向参考图靠拢。
+- 权重越高，参考图的影响越强；权重为 0 时，相当于关闭 IPAdapter，回归基础文生图。
 
 ## 准备模型
 
@@ -36,37 +76,12 @@ wget https://hf-mirror.com/h94/IP-Adapter/resolve/main/models/image_encoder/mode
 | 维度 | ControlNet（以 Scribble 为例） | IPAdapter |
 | --- | --- | --- |
 | 控制对象 | 结构、轮廓、姿态 | 内容、人物特征、风格、物体特征 |
-| 参考图含义 | “请按这个形状画” | “请画得像这张图” |
+| 参考图含义 | "请按这个形状画" | "请画得像这张图" |
 | 预处理 | 通常需要对应预处理器 | 原始笔记中的基础流程直接使用参考图 |
 | 依赖 | ControlNet 专用模型 | CLIP Vision + IPAdapter 模型 |
 | 主要注入位置 | `CONDITIONING` | `MODEL` |
 
-## 数据流
-
-```mermaid
-flowchart LR
-    RI["参考图"] --> CV["CLIP Vision Encode"]
-    CV --> IPA["IPAdapter"]
-    CK["Checkpoint MODEL"] --> IPA
-    IPA --> KS["KSampler"]
-    TX["Text Conditioning"] --> KS
-    KS --> VD["VAE Decode"]
-    VD --> IM["Image"]
-```
-
-不同扩展版本中的具体节点名称可能不同，但核心链路不变：参考图先被视觉编码，再通过 IPAdapter 把视觉特征注入 `MODEL`。
-
-## 核心组件
-
-### CLIP Vision
-
-负责把参考图像转换为高维视觉特征。它处理的是图像信息，不是 Prompt 文本。
-
-### IPAdapter
-
-接收基础模型、参考图视觉特征以及相应适配器权重，输出经过视觉条件调整的 `MODEL`，供 KSampler 使用。
-
-### Weight
+## 权重调节
 
 - `0`：不使用参考图影响，接近基础文生图；
 - `1.0`：原始笔记中的常规强度参考值；
@@ -81,4 +96,4 @@ ControlNet：结构条件 → CONDITIONING → KSampler
 IPAdapter：视觉特征 → MODEL → KSampler
 ```
 
-这条“插入位置”的差异，是区分两者最实用的心智模型。
+这条"插入位置"的差异，是区分两者最实用的心智模型。
