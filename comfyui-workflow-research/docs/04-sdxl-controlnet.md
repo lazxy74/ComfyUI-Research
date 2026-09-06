@@ -103,6 +103,7 @@ pip install -r requirements.txt
 以下以Scribble为例子来展示效果：
 
 草图：
+
 ![草图](https://github.com/user-attachments/assets/8b70c65f-05f5-4e94-9e74-a257464cdc27)
 
 完整流程图 + 最终效果图
