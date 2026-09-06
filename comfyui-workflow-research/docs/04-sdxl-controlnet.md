@@ -101,8 +101,11 @@ pip install -r requirements.txt
 | Reference | 参考图 | 角色外观/风格一致性 | 让生成图和参考角色长得像 |
 
 以下以Scribble为例子来展示效果：
+
+草图：
 ![草图](https://github.com/user-attachments/assets/8b70c65f-05f5-4e94-9e74-a257464cdc27)
 
+完整流程图 + 最终效果图
 ![完整流程图](https://github.com/user-attachments/assets/7853ad47-185b-44a2-b6a1-d92b59e7a15f)
 
 ## 强度调节

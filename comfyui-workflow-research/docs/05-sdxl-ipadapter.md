@@ -1,99 +1,384 @@
-# 05. SDXL + IPAdapter：内容与视觉特征控制
+# 05. SDXL + IPAdapter 实验
 
 [返回首页](../README.md)
 
-## 学习目标
+## 一、实验目的
 
-理解 IPAdapter 如何通过参考图的视觉特征直接注入基础模型，使生成结果在人物长相、物体特征或视觉风格上"画得像这张图"，而非仅仅遵循文字描述。
+本阶段主要研究 **IPAdapter** 在 SDXL 图像生成中的作用，并通过调整 `weight` 进行对照实验，观察参考图对最终生成结果的影响。
 
-## 核心数据流
+本实验重点理解：
 
-```mermaid
-flowchart LR
-    P["Positive / Negative Prompt"] --> C["CLIP Text Encode"]
-    B["SDXL Base Checkpoint"] --> C
-    B --> KS["KSampler"]
-    C --> KS
-    L["Empty Latent Image"] --> KS
-    RI["参考图"] --> CV["CLIP Vision Encode"]
-    CV --> IPA["IPAdapter"]
-    B --> IPA
-    IPA --> KS
-    KS --> V["VAE Decode"]
-    V --> I["Save Image"]
-```
+> **IPAdapter 如何利用参考图控制生成内容，以及它与 ControlNet 的区别。**
 
-## 完整流程展示图
+---
 
-## 核心节点
+# 二、IPAdapter 与 ControlNet 的区别
 
-### CLIP Vision
+| 维度 | ControlNet（Scribble） | IPAdapter |
+|---|---|---|
+| **控制什么** | 结构 / 轮廓（草图骨架） | 内容 / 特征（人脸、风格、物体） |
+| **参考图作用** | “请按这个形状画” | “请画得像这张图” |
+| **预处理** | 需要（ScribblePreprocessor） | 不需要（直接使用原图） |
+| **依赖模型** | ControlNet 专用模型 | CLIP Vision + IPAdapter 模型 |
+| **主要注入位置** | CONDITIONING | MODEL |
 
-负责把参考图像转换为高维视觉特征。它处理的是图像信息，不是 Prompt 文本，相当于一双"只看图、不识字"的眼睛。
-
-![Markdown Logo]()
-注释：左侧或中间偏上为 CLIP Vision Encode 节点，接收参考图输入
-
-- 把参考图（如人物照片或风格图）编码成视觉特征向量。这些向量捕捉的是图像中的长相、纹理、色调等视觉信息，而非文字语义。
-
-### IPAdapter
-
-接收基础模型、参考图视觉特征以及相应适配器权重，输出经过视觉条件调整的 `MODEL`，供 KSampler 使用。
-
-![Markdown Logo]()
-注释：中间紫色框为 IPAdapter 节点，接收 MODEL、CLIP Vision 输出和权重参数
-
-- 好比给基础模型做了一次"微整容"或"风格化妆"：不改变模型的骨架，但让生成结果在五官、气质或笔触上向参考图靠拢。
-- 权重越高，参考图的影响越强；权重为 0 时，相当于关闭 IPAdapter，回归基础文生图。
-
-## 准备模型
-
-原始调研记录了以下 SDXL 依赖：
-
-```bash
-# IPAdapter 模型
-cd /path/to/ComfyUI/models/ipadapter
-wget https://hf-mirror.com/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter_sdxl_vit-h.safetensors
-
-# CLIP Vision 编码器
-cd /path/to/ComfyUI/models/clip_vision
-wget https://hf-mirror.com/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors \
-  -O CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors
-```
-
-> 节点实现、文件命名和模型目录可能随扩展版本变化。应以实际安装的节点包说明为准。
-
-## 加载与运行
-
-1. 从可信来源获取适用于 SDXL 的 IPAdapter Workflow。
-2. 将带 Workflow metadata 的 PNG 拖入画布，或导入 JSON。
-3. 在 `Load Image` 节点上传人物照片或风格参考图。
-4. 确认 CLIP Vision 与 IPAdapter 权重均已正确加载。
-5. 固定 Prompt 和 Seed，逐步调整 IPAdapter 权重。
-
-## 与 ControlNet 的区别
-
-| 维度 | ControlNet（以 Scribble 为例） | IPAdapter |
-| --- | --- | --- |
-| 控制对象 | 结构、轮廓、姿态 | 内容、人物特征、风格、物体特征 |
-| 参考图含义 | "请按这个形状画" | "请画得像这张图" |
-| 预处理 | 通常需要对应预处理器 | 原始笔记中的基础流程直接使用参考图 |
-| 依赖 | ControlNet 专用模型 | CLIP Vision + IPAdapter 模型 |
-| 主要注入位置 | `CONDITIONING` | `MODEL` |
-
-## 权重调节
-
-- `0`：不使用参考图影响，接近基础文生图；
-- `1.0`：原始笔记中的常规强度参考值；
-- 建议先扫描 `0.6–1.0`，再根据人物一致性、构图自由度和风格侵占程度调整。
-
-权重过高可能让参考图特征压过 Prompt，也可能降低画面多样性。
-
-## 关键理解
+可以简单理解为：
 
 ```text
-ControlNet：结构条件 → CONDITIONING → KSampler
-IPAdapter：视觉特征 → MODEL → KSampler
+ControlNet：
+参考图 → 提取结构 → 控制“怎么摆”
+
+IPAdapter：
+参考图 → 提取视觉特征 → 控制“长什么样”
 ```
 
-这条"插入位置"的差异，是区分两者最实用的心智模型。
+---
+
+
+# 四、模型准备
+
+## 1. 下载 SDXL 基础版 IPAdapter
+
+创建模型目录：
+
+```bash
+mkdir -p models/ipadapter
+```
+
+下载 SDXL IPAdapter：
+
+```bash
+wget -O models/ipadapter/ip-adapter_sdxl_vit-h.safetensors \
+https://hf-mirror.com/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter_sdxl_vit-h.safetensors
+```
+
+---
+
+## 2. 下载 CLIP Vision 编码器
+
+下载约 1.2 GB 的 CLIP Vision 模型：
+
+```bash
+wget https://hf-mirror.com/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors \
+-O CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors
+```
+
+CLIP Vision 负责将参考图转换成视觉特征。
+
+
+# 五、Workflow 准备
+
+本次实验参考：
+
+```text
+ip-adapter-sdxl.json
+```
+
+来源：
+
+```text
+https://github.com/aimpowerment/comfyui-workflows/blob/main/ip-adapter-sdxl.json
+```
+
+但是需要注意：
+
+> 该 JSON 使用的是旧版本的 `IPAdapterApply` 节点。
+
+当前已经安装新版：
+
+```text
+ComfyUI_IPAdapter_plus
+```
+
+因此需要将旧版：
+
+```text
+IPAdapterApply
+```
+
+替换为新版：
+
+```text
+IPAdapter Advanced
+```
+
+# 七、修改权重实验
+
+## 实验目标
+
+本次实验采用控制变量法：
+
+> **固定其他参数，只改变 IPAdapter 的 `weight`。**
+
+这样可以观察：
+
+> IPAdapter 的参考图影响强度与最终结果之间的关系。
+
+
+# 八、完整workflow
+
+![完整workflow](https://private-user-images.githubusercontent.com/220977013/646878963-81ccb202-50a4-4e01-960f-8b5b21db6803.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3ODg2Nzc0MjgsIm5iZiI6MTc4ODY3NzEyOCwicGF0aCI6Ii8yMjA5NzcwMTMvNjQ2ODc4OTYzLTgxY2NiMjAyLTUwYTQtNGUwMS05NjBmLThiNWIyMWRiNjgwMy5wbmc_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBVkNPRFlMU0E1M1BRSzRaQSUyRjIwMjYwOTA2JTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDkwNlQwNjQ1MjhaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT0zYzI2MjdkMjM2NjQ3M2Q0YzkxOWUyMGI2MTQ1N2Y5ZWE1NGEzOTVjNjJhNTQxYjE3M2JjNTkxYWRkYjE4YTNiJlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZyZXNwb25zZS1jb250ZW50LXR5cGU9aW1hZ2UlMkZwbmcifQ.ouqrzEZ0z6uyYBNrsEkAiozSB0rZAnQYiBrKp1NoVkI)
+
+
+# 九、核心节点
+
+## 3. IPAdapter Advanced
+
+`IPAdapter Advanced` 是本实验的核心节点。
+
+它接收：
+
+### `model`
+
+来自：
+
+```text
+Checkpoint Loader
+```
+
+即基础模型。
+
+### `image / 视觉特征`
+
+来自：
+
+```text
+CLIP Vision
+```
+
+即参考图的视觉特征。
+
+### `clip_vision`
+
+来自：
+
+```text
+CLIPVisionLoader
+```
+
+即 CLIP Vision 编码器。
+
+它的核心作用：
+
+> **将参考图的视觉特征注入 MODEL，使 KSampler 在生成过程中受到参考图视觉信息的影响。**
+
+可以理解为：
+
+> 在模型的“生成过程中加入一张参考图的视觉记忆”。
+
+---
+
+# 十、IPAdapter Weight
+
+IPAdapter 最重要的实验参数之一：
+
+```text
+weight
+```
+
+它控制：
+
+> **参考图视觉特征的注入强度。**
+
+大致可以理解为：
+
+```text
+weight = 0
+↓
+几乎不参考参考图
+
+weight ↑
+↓
+越来越受到参考图影响
+
+weight 过高
+↓
+参考图特征过度侵占
+↓
+可能出现异常
+```
+
+本次实验观察到：
+
+```text
+0.0 → 没有参考图影响
+0.5 → 参考图开始明显影响结果
+1.0 → 相似度较高
+1.5 → 结果开始严重异常
+```
+
+
+# 十四、对照实验结果
+
+本实验采用控制变量法。
+
+除 `weight` 外，其余参数全部固定。
+
+| 实验 | weight | 与参考图相似度 | 画面质量 | 观察结果 |
+|---|---:|---|---|---|
+| A | 0.0 | 1/5（毫无相关性） | 正常 | 基础文生图效果，生成人物与参考图完全无关，证明 Baseline 正确 |
+| B | 0.5 | 3/5（还可以） | 正常 | 参考图开始起作用，人物五官和气质向参考图靠拢，但不过度 |
+| C | 1.0 | 4/5（还可以，但动作有点不对） | 轻微异常 | 相似度明显提升，但参考图特征开始过度约束，导致动作/姿态出现偏差 |
+| D | 1.5 | 2/5（偏了） | 崩坏 | 参考图特征严重侵占生成结果，人物姿态和结构明显异常，进入过拟合区域 |
+
+
+
+# 十六、IPAdapter 与 ControlNet 的核心区别
+
+| 维度 | ControlNet（Scribble） | IPAdapter |
+|---|---|---|
+| 控制对象 | 结构、轮廓、姿态 | 内容、人物特征、风格、物体特征 |
+| 参考图含义 | “请按这个形状画” | “请画得像这张图” |
+| 预处理 | 需要 `ScribblePreprocessor` | 不需要，直接使用原图 |
+| 依赖模型 | ControlNet 专用模型 | CLIP Vision + IPAdapter 模型 |
+| 主要注入位置 | `CONDITIONING` | `MODEL` |
+
+> **ControlNet 管“怎么摆”，IPAdapter 管“长什么样”。**
+
+---
+
+# 十七、两者可以组合使用
+
+ControlNet 与 IPAdapter 并不是互斥关系。
+
+可以组合：
+
+```text
+ControlNet
+    ↓
+控制结构 / 姿态 / 骨架
+
+IPAdapter
+    ↓
+控制人物特征 / 风格 / 内容
+```
+
+例如：
+
+```text
+Reference Image
+       ↓
+    IPAdapter
+       ↓
+控制人物外观
+       
+Control Image
+       ↓
+   ControlNet
+       ↓
+控制人物姿态
+       
+       ↓
+      SDXL
+       ↓
+最终图片
+```
+
+---
+
+# 十八、调研结论
+
+## 1. IPAdapter Weight 存在有效区间
+
+本次实验中：
+
+```text
+0.5–1.0
+```
+
+整体效果比较平衡。
+
+而：
+
+```text
+0.0
+```
+
+基本没有参考图影响。
+
+```text
+1.5
+```
+
+出现明显崩坏。
+
+因此：
+
+> **IPAdapter 并不是权重越高越好，而是存在一个相对合适的有效区间。**
+
+
+## 3. Weight 升高可能产生“特征侵占”
+
+当：
+
+```text
+weight = 1.0
+```
+
+时，参考图相似度已经明显提高。
+
+但同时开始出现：
+
+```text
+动作 / 姿态偏差
+```
+
+当：
+
+```text
+weight = 1.5
+```
+
+时，甚至出现：
+
+```text
+结构异常
+```
+
+说明 IPAdapter 的影响并不仅限于：
+
+```text
+人物长相
+```
+
+还可能逐渐影响：
+
+```text
+构图
+姿态
+结构
+```
+
+
+# 二十、实验截图
+
+
+### 参考图片
+
+```markdown
+![参考图片](https://private-user-images.githubusercontent.com/220977013/646878174-2847cb25-8ece-4184-8855-9e7b75e2f15e.jpg?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3ODg2Nzc0MjgsIm5iZiI6MTc4ODY3NzEyOCwicGF0aCI6Ii8yMjA5NzcwMTMvNjQ2ODc4MTc0LTI4NDdjYjI1LThlY2UtNDE4NC04ODU1LTllN2I3NWUyZjE1ZS5qcGc_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBVkNPRFlMU0E1M1BRSzRaQSUyRjIwMjYwOTA2JTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDkwNlQwNjQ1MjhaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT1jZDBmZmIwZjZlMDhhMmIwNzU0ODI4ZTFhMzBlODM1NmMyYjcyZTE2ZmZlNDk1MWEwZTRjZDRlMzBlYmJjZTdhJlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZyZXNwb25zZS1jb250ZW50LXR5cGU9aW1hZ2UlMkZqcGVnIn0.EUPcseIZcCYUGp998yDkxtbj1U_Clh85HtcuTcg_ZK0)
+
+### weight = 0.0
+
+```markdown
+![IPAdapter weight 0.0](https://private-user-images.githubusercontent.com/220977013/646878064-42efebc3-4fb5-4a65-8e32-354a5391688b.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3ODg2Nzc0MjgsIm5iZiI6MTc4ODY3NzEyOCwicGF0aCI6Ii8yMjA5NzcwMTMvNjQ2ODc4MDY0LTQyZWZlYmMzLTRmYjUtNGE2NS04ZTMyLTM1NGE1MzkxNjg4Yi5wbmc_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBVkNPRFlMU0E1M1BRSzRaQSUyRjIwMjYwOTA2JTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDkwNlQwNjQ1MjhaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT0yZjMxMGE2MThmYzcxYmIzYWQwNDkzOWFjM2FjYTU5OGZjNmYzNzY1MDYyNDQzMGE1Y2U5NDg2MGE3NGU3YmZhJlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZyZXNwb25zZS1jb250ZW50LXR5cGU9aW1hZ2UlMkZwbmcifQ.jiLTeS_4zkdhf-JGAOvqJHnCCsZ1ubPQMp-kmOvDvB8)
+```
+
+### weight = 0.5
+
+```markdown
+![IPAdapter weight 0.5](https://private-user-images.githubusercontent.com/220977013/646878063-f9482b7d-d843-42bd-97a8-434da076ded5.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3ODg2Nzc0MjgsIm5iZiI6MTc4ODY3NzEyOCwicGF0aCI6Ii8yMjA5NzcwMTMvNjQ2ODc4MDYzLWY5NDgyYjdkLWQ4NDMtNDJiZC05N2E4LTQzNGRhMDc2ZGVkNS5wbmc_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBVkNPRFlMU0E1M1BRSzRaQSUyRjIwMjYwOTA2JTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDkwNlQwNjQ1MjhaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT1mYjM4M2RmMWE2ZTRhOWJmYjE0YTg3NzM2MTA1NTAxNmZlNzJlYjkzYmFjZTdiNTU2NzMxYTZhYzM3NDdkMjM1JlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZyZXNwb25zZS1jb250ZW50LXR5cGU9aW1hZ2UlMkZwbmcifQ.iy-Z8KdNFTo-9NFbKtwhrmZzbkrbvD_q6z-IH4HlEW8)
+```
+
+### weight = 1.0
+
+```markdown
+![IPAdapter weight 1.0](https://private-user-images.githubusercontent.com/220977013/646878065-a89c191f-6d91-4c8e-a333-97e0995fecc6.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3ODg2Nzc0MjgsIm5iZiI6MTc4ODY3NzEyOCwicGF0aCI6Ii8yMjA5NzcwMTMvNjQ2ODc4MDY1LWE4OWMxOTFmLTZkOTEtNGM4ZS1hMzMzLTk3ZTA5OTVmZWNjNi5wbmc_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBVkNPRFlMU0E1M1BRSzRaQSUyRjIwMjYwOTA2JTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDkwNlQwNjQ1MjhaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT05MTliNDQ2NThmMzMzZjVhMWIwNjdkMjU1OWQ0YmU1NDFkZTQyZmRmYWY0NjdjOTUzOGEwMDUyOTFlM2U1MDM4JlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZyZXNwb25zZS1jb250ZW50LXR5cGU9aW1hZ2UlMkZwbmcifQ.KfVmc-zPNlFJ29xH6DgqdmRfme8sZV1K1q3gk7-NV6g)
+```
+
+### weight = 1.5
+
+```markdown
+![IPAdapter weight 1.5](https://private-user-images.githubusercontent.com/220977013/646878106-4261dbd0-3375-4f11-8f5b-9e9484f0b6b5.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3ODg2Nzc0MjgsIm5iZiI6MTc4ODY3NzEyOCwicGF0aCI6Ii8yMjA5NzcwMTMvNjQ2ODc4MTA2LTQyNjFkYmQwLTMzNzUtNGYxMS04ZjViLTllOTQ4NGYwYjZiNS5wbmc_WC1BbXotQWxnb3JpdGhtPUFXUzQtSE1BQy1TSEEyNTYmWC1BbXotQ3JlZGVudGlhbD1BS0lBVkNPRFlMU0E1M1BRSzRaQSUyRjIwMjYwOTA2JTJGdXMtZWFzdC0xJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDkwNlQwNjQ1MjhaJlgtQW16LUV4cGlyZXM9MzAwJlgtQW16LVNpZ25hdHVyZT01MjM2M2Y1OTViYjU0YTBlOTE0YmY5ZWVkNmNiZjZjOTgxNzU4M2ZlOTc4YWU2ZTMyMjg4OTUxMGVkOWQ0NGI4JlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZyZXNwb25zZS1jb250ZW50LXR5cGU9aW1hZ2UlMkZwbmcifQ.tEDZbuFjJC2ejFYjMLsvFMg3oEWuIYCg7o1bBOmZEZA)
+```
+
